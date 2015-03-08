@@ -269,6 +269,25 @@ describe "Skylight::Instrumenter", :http, :agent do
         server.reports[0].should have(1).endpoints
         server.reports[0].endpoints.map(&:name).should == ["foo#bar"]
       end
+
+      it "ignores throttled traces" do
+        config[:throttle_rate] = 1.0
+
+        Skylight.trace 'foo#bar', 'app.rack' do |t|
+          clock.skip 1
+        end
+
+        %w( foo bar baz ).each do |name|
+          Skylight.trace "#{name}#heartbeat", 'app.rack' do |t|
+            clock.skip 1
+          end
+        end
+
+        clock.unfreeze
+        server.wait(count: 3)
+
+        server.reports[0].should have(0).endpoints
+      end
     end
 
     def with_endpoint(endpoint)
