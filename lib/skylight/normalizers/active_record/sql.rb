@@ -13,11 +13,11 @@ module Skylight
 
         def normalize(trace, name, payload)
           case payload[:name]
-          when "SCHEMA", "CACHE"
+          when "SCHEMA".freeze, "CACHE".freeze
             return :skip
           else
             name  = CAT
-            title = payload[:name] || "SQL"
+            title = payload[:name] || "SQL".freeze
           end
 
           binds = payload[:binds]
@@ -26,52 +26,38 @@ module Skylight
             binds = binds.map { |col, val| val.inspect }
           end
 
-          extracted_title, sql, binds, _ = extract_binds(payload, binds)
-          title = extracted_title if extracted_title
-
-          if sql
-            annotations = {
-              sql:   sql,
-              binds: binds,
-            }
+          begin
+            extracted_title, sql = extract_binds(payload, binds)
+            [ name, extracted_title || title, sql ]
+          rescue => e
+            # FIXME: Rust errors get written to STDERR and don't come through here
+            if config[:log_sql_parse_errors]
+              config.logger.warn "failed to extract binds in SQL; sql=#{payload[:sql].inspect}; exception=#{e.inspect}"
+            end
+            [ name, title, nil ]
           end
-
-          [ name, title, sql, annotations ]
         end
 
-      private
+        private
+
         def extract_binds(payload, precalculated)
-          title, sql, binds = SqlLexer::Lexer.bindify(payload[:sql], precalculated, true)
-          [ title, sql, binds, nil ]
-        rescue => e
-          group = "sql_parse"
-          description = e.inspect
-          details = encode(backtrace: e.backtrace,
-                            original_exception: {
-                              class_name: e.class.name,
-                              message: e.message
-                            },
-                            payload: payload,
-                            precalculated: precalculated)
-
-          error = [group, description, details]
-          [ nil, nil, nil, error ]
+          case config[:sql_mode]
+          when 'rust'.freeze
+            extract_rust(payload)
+          when 'ruby'.freeze
+            extract_ruby(payload, precalculated)
+          else
+            raise "Unrecognized sql_mode: #{config.sql_mode}"
+          end
         end
 
-        # While operating in place would save memory, some of these passed in items are re-used elsewhere
-        # and, as such, should not be modified.
-        def encode(body)
-          if body.is_a?(Hash)
-            hash = {}
-            body.each{|k,v| hash[k] = encode(v) }
-            hash
-          elsif body.is_a?(Array)
-            body.map{|v| encode(v) }
-          elsif body.respond_to?(:encoding) && (body.encoding == Encoding::BINARY || !body.valid_encoding?)
-            Base64.encode64(body)
-          else
-            body
-          end
+        def extract_rust(payload)
+          Skylight.lex_sql(payload[:sql])
+        end
+
+        def extract_ruby(payload, precalculated)
+          name, title, _ = SqlLexer::Lexer.bindify(payload[:sql], precalculated, true)
+          [ name, title ]
         end
       end
     end

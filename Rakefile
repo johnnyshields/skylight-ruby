@@ -60,6 +60,7 @@ task :build => RUBY_EXT
 desc "clean build artifacts"
 task :clean do
   rm_rf "lib/skylight/native"
+  rm_f "ext/install.log"
   rm_rf TARGET_DIR
 end
 
@@ -89,6 +90,120 @@ end
 if defined?(YARD)
   # See .yardopts
   YARD::Rake::YardocTask.new
+end
+
+def get_travis_builds
+  require 'yaml'
+  config = YAML.load_file(".travis.yml")
+
+  builds = []
+
+  config["env"]["matrix"].each do |env|
+    config["rvm"].each do |rvm|
+      config["gemfile"].each do |gemfile|
+        builds << {
+          "env"     => Array(env).compact,
+          "rvm"     => rvm,
+          "gemfile" => gemfile
+        }
+      end
+    end
+  end
+
+  builds += config["matrix"]["include"]
+
+  config["matrix"]["exclude"].each do |build|
+    builds.reject! do |b|
+      build.to_a.all? do |(k,v)|
+        v = Array(v) if k == 'env'
+        b[k] == v
+      end
+    end
+  end
+
+  builds.each.with_index do |build, index|
+    build["number"] = index + 1
+  end
+
+  builds
+end
+
+task :vagrant_up do
+  system("vagrant up --provision")
+end
+
+task :run_travis_builds => :vagrant_up do |t|
+  builds = get_travis_builds
+
+  if number = ENV['JOB']
+    if build = builds.find{|b| b['number'] == number.to_i }
+      builds = [build]
+    else
+      abort "No build for number: #{number}"
+    end
+  end
+
+  # Set variables here before we do with_clean_env
+  no_clean = ENV['NO_CLEAN']
+  rspec_args = ENV['RSPEC']
+  debug = ENV['DEBUG']
+
+  # Avoids issue with vagrant existing as a gem
+  Bundler.with_clean_env do
+    builds.each do |build|
+      puts "#{build['number']}: #{build.inspect}"
+
+      commands = [
+        "cd /vagrant",
+        "rvm use #{build['rvm']}",
+        "gem install bundler",
+        "export SKYLIGHT_SOCKDIR_PATH=/tmp", # Avoid NFS issues
+        "export BUNDLE_GEMFILE=\\$PWD/#{build['gemfile']}" # Escape PWD so it runs on Vagrant, not local box
+      ]
+
+      commands += Array(build['env']).map{|env| "export #{env}" }
+
+      commands << "export DEBUG=1" if debug
+
+      commands << "bundle update"
+      commands << "bundle exec rake clean" unless no_clean
+
+      if rspec_args
+        commands << "bundle exec rake build"
+        commands << "bundle exec rspec #{rspec_args}"
+      else
+        commands << "bundle exec rake"
+      end
+
+      command = commands.join(" && ")
+
+      # TODO: May need special handling for quotation marks
+      system("vagrant ssh -c \"#{command}\"")
+      build["success"] = $?.success?
+    end
+  end
+
+  successful = builds.select{|b| b["success"] }
+  failed = builds.reject{|b| b["success"] }
+
+  puts "Completed: #{builds.count}, Successful: #{successful.count}, Failed: #{failed.count}"
+
+  if failed.count > 0
+    puts "Failures:"
+    failed.each do |build|
+      puts "  #{build['number']}: #{build.inspect}"
+    end
+  end
+
+  fail if failed.count > 0
+end
+
+task :list_travis_builds do
+  builds = get_travis_builds
+
+  builds.each do |build|
+    puts "#{build['number']}: #{build.inspect}"
+  end
 end
 
 task :default => :spec

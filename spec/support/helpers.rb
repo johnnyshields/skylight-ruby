@@ -53,6 +53,7 @@ module SpecHelper
       auth_http_deflate: false,
       auth_http_connect_timeout: "2sec",
       auth_http_read_timeout: "2sec",
+      sql_mode: 'rust',
       gc: {
         profiler: gc
       }.freeze,
@@ -73,15 +74,8 @@ module SpecHelper
     Skylight.start! config
   end
 
-  def annotation(key=nil, type=nil, value=nil, &block)
-    Skylight::Messages::Annotation.new.tap do |annotation|
-      annotation.key = key if key
-      annotation[type] = value if value
-
-      if block_given?
-        annotation.nested = []
-        yield annotation.nested
-      end
-    end
+  def current_trace
+    inst = Skylight::Instrumenter.instance
+    inst ? inst.current_trace : nil
   end
 end

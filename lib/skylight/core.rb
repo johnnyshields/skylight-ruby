@@ -16,6 +16,7 @@ module Skylight
 
   # Require VM specific things
   require 'skylight/config'
+  require 'skylight/user_config'
   require 'skylight/gc'
   require 'skylight/helpers'
   require 'skylight/instrumenter'
@@ -85,7 +86,7 @@ module Skylight
   end
 
   # Instrument
-  def self.instrument(opts = DEFAULT_OPTIONS)
+  def self.instrument(opts = DEFAULT_OPTIONS, &block)
     unless inst = Instrumenter.instance
       return yield if block_given?
       return
@@ -95,19 +96,16 @@ module Skylight
       category    = opts[:category] || DEFAULT_CATEGORY
       title       = opts[:title]
       desc        = opts[:description]
-      annotations = opts[:annotations]
+      if opts.key?(:annotations)
+        warn "call to #instrument included deprecated annotations"
+      end
     else
       category    = DEFAULT_CATEGORY
       title       = opts.to_s
       desc        = nil
-      annotations = nil
     end
 
-    if block_given?
-      inst.instrument(category, title, desc, annotations) { yield }
-    else
-      inst.instrument(category, title, desc, annotations)
-    end
+    inst.instrument(category, title, desc, &block)
   end
 
   # Temporarily disable

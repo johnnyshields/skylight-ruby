@@ -1,3 +1,89 @@
+## 0.10.3 (February 2, 2016)
+
+* [BUGFIX] Don't validate configuration on disabled environments.
+
+## 0.10.2 (January 19, 2016)
+
+* [BUGFIX] Fix git repository warning on startup. [Issue #58](https://github.com/skylightio/skylight-ruby/issues/58)
+
+## 0.10.1 (January 4, 2016)
+
+* [FEATURE] Preliminary work for deploy tracking (not yet functional)
+* [BUGFIX] Don't crash if user config (~/.skylight) is empty
+* [BUGFIX] Better handling of unsupported moped versions
+* [IMPROVEMENT] Internal refactor of configuration handling
+* [IMPROVEMENT] Improve automated tests
+* [IMPROVEMENT] Fix tests in Rails 5 (No actual code changes required!)
+
+## 0.10.0 (December 3, 2015)
+
+* [FEATURE] ActiveModel::Serializers Instrumentation. Always on in latest HEAD, for previous version add 'active_model_serializers' to probes list.
+* [BUGFIX] Handle multi-byte characters in SQL lexer
+
+## 0.9.4 (November 23, 2015)
+
+* [FEATURE] Added instrumentation for official Mongo Ruby Driver (utilized by Mongoid 5+). Add 'mongo' to probes list to enable. 
+* [BUGFIX] SQL lexer now handles indentifiers beginning with underscores.
+* [BUGFIX] Excon instrumentation now works correctly.
+* [BUGFIX] Graceful handling of native agent failures on old OS X versions.
+* [IMPROVEMENT] Freeze some more strings for (likely very minor) performance improvements.
+* [IMPROVEMENT] Better error messages when sockdir is an NFS mount.
+* [IMPROVEMENT] On OS X, ensure that Xcode license has been approved before trying to build native agent.
+
+## 0.9.3 (November 17, 2015)
+
+* [BUGFIX] Update SQL lexer to handle more common queries
+* [BUGFIX] Correctly report native gem installation failures
+
+## 0.9.2 (November 13, 2015)
+
+* [BUGFIX] Correctly update Rust agent to include SQL fixes that were supposed to land in 0.9.1.
+
+## 0.9.1 (November 10, 2015)
+
+* [BUGFIX] Update Rust SQL lexer to handle `NOT` and `::` typecasting.
+
+## 0.9.0 (November 6, 2015)
+
+* [FEATURE] Expose Skylight::Helpers.instrument_class_method
+* [BUGFIX] Allow for instrumentation of setters
+* [BUGFIX] Fix an issue where loading some items in the Grape namespace without loading the whole library would cause an exception.
+* [IMPROVEMENT] Switch to Rust SQL lexer by default
+* [IMPROVEMENT] Add support for Redis pipelined and multi
+* [IMPROVEMENT] Updated Rust internals
+* [IMPROVEMENT] Agent should now work on current Rails master
+* [IMPROVEMENT] Better disabling of development mode warning
+
+## 0.8.1 (October 1, 2015)
+
+* [BUGFIX] Fix agent on OS X El Capitan.
+* [PERFORMANCE] Explicitly subscribe to normalized events
+* [IMPROVEMENT] Use native unique description tracking
+* [IMPROVEMENT] Native SQL: Support multistatement queries
+
+## 0.8.0 (August 13, 2015)
+
+* [FEATURE] Add Grape instumentation. See http://docs.skylight.io/grape
+* [FEATURE] Process ERB in config/skylight.yml
+* [FEATURE] Add Rust based SQL lexing. Currently beta. Enable with `config.sql_mode = 'rust'`.
+* [BUGFIX] Fixed a case where, With some logger configurations, duplicate messages could be written to STDOUT.
+
+## 0.7.1 (August 4, 2015)
+
+* [BUGFIX] Fix bug in FFI error handling
+
+## 0.7.0 (August 3, 2015)
+
+* [BUFIX] Condvar bug in Rust. Updated to latest nightly.
+* [BUGFIX] Don't crash on ruby stack overflow
+* [IMPROVEMENT] Silence a noisy log message
+* [IMPROVEMENT] Update to latest openssl & curl
+* [FEATURE] Add probe on ActionView for layout renders
+
+## 0.6.1 (June 30, 2015)
+
+* [BUGFIX] Don't use $DEBUG to enable verbose internal logging
+
 ## 0.6.0 (January 27, 2015)
 
 * [IMPROVEMENT] Eliminates runtime dependency on the Rails
@@ -39,6 +125,10 @@
 
 * Featherweight Agent: lowered CPU and memory overhead
 * [IMPROVEMENT] Add support for ignoring an endpoint by name
+
+## 0.3.21 (October 8, 2014)
+
+* [BUGFIX] Skylight crashing on start won't crash entire app
 
 ## 0.3.20 (September 3, 2014)
 

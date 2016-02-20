@@ -7,7 +7,6 @@ module Skylight
   class Instrumenter
     KEY  = :__skylight_current_trace
     LOCK = Mutex.new
-    DESC_LOCK = Mutex.new
 
     TOO_MANY_UNIQUES = "<too many unique descriptions>"
 
@@ -76,7 +75,7 @@ module Skylight
       config = Config.load(config) unless config.is_a?(Config)
       config.validate!
 
-      inst = native_new(config.to_env)
+      inst = native_new(config.to_native_env)
       inst.send(:initialize, config)
       inst
     end
@@ -87,7 +86,6 @@ module Skylight
       @subscriber = Subscriber.new(config, self)
 
       @trace_info = @config[:trace_info] || TraceInfo.new
-      @descriptions = Hash.new { |h,k| h[k] = {} }
     end
 
     def current_trace
@@ -138,7 +136,7 @@ module Skylight
       native_stop
     end
 
-    def trace(endpoint, cat, title=nil, desc=nil, annot=nil)
+    def trace(endpoint, cat, title=nil, desc=nil)
       # If a trace is already in progress, continue with that one
       if trace = @trace_info.current
         return yield(trace) if block_given?
@@ -146,7 +144,7 @@ module Skylight
       end
 
       begin
-        trace = Trace.new(self, endpoint, Util::Clock.nanos, cat, title, desc, annot)
+        trace = Trace.new(self, endpoint, Util::Clock.nanos, cat, title, desc)
       rescue Exception => e
         log_error e.message
         t { e.backtrace.join("\n") }
@@ -192,7 +190,7 @@ module Skylight
       trace.done(span)
     end
 
-    def instrument(cat, title=nil, desc=nil, annot=nil)
+    def instrument(cat, title=nil, desc=nil)
       raise ArgumentError, 'cat is required' unless cat
 
       unless trace = @trace_info.current
@@ -210,7 +208,7 @@ module Skylight
 
       cat = "other.#{cat}" unless match?(cat, TIER_REGEX)
 
-      unless sp = trace.instrument(cat, title, desc, annot)
+      unless sp = trace.instrument(cat, title, desc)
         return yield if block_given?
         return
       end
@@ -227,15 +225,12 @@ module Skylight
     def limited_description(description)
       endpoint = @trace_info.current.endpoint
 
-      DESC_LOCK.synchronize do
-        set = @descriptions[endpoint]
-
-        if set.size >= 100
-          return TOO_MANY_UNIQUES
+      if description
+        if native_track_desc(endpoint, description)
+          description
+        else
+          TOO_MANY_UNIQUES
         end
-
-        set[description] = true
-        description
       end
     end
 
@@ -244,6 +239,11 @@ module Skylight
 
       if ignore?(trace)
         t { fmt "ignoring trace" }
+        return false
+      end
+
+      if throttle?
+        t { fmt "throttling trace" }
         return false
       end
 
@@ -258,6 +258,10 @@ module Skylight
 
     def ignore?(trace)
       @config.ignored_endpoints.include?(trace.endpoint)
+    end
+
+    def throttle?
+      @config.throttle_rate > 0.0 && Random.rand(1.0) <= @config.throttle_rate
     end
 
     # Validates that the provided authentication token is valid. This is done

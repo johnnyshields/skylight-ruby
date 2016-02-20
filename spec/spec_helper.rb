@@ -19,11 +19,19 @@ require 'rack/test'
 # will report more helpful errors
 require "support/native"
 
+
 # Begin Probed libraries
-begin
-  require 'excon'
-  require 'skylight/probes/excon'
-rescue LoadError
+
+if ENV['AMS_VERSION'] == 'head'
+  require 'active_support/inflector'
+end
+
+%w(excon tilt sinatra sequel grape mongo moped mongoid active_model_serializers).each do |library|
+  begin
+    require library
+    require "skylight/probes/#{library}"
+  rescue LoadError
+  end
 end
 
 begin
@@ -34,20 +42,9 @@ rescue LoadError
 end
 
 begin
-  require 'tilt'
-  require 'skylight/probes/tilt'
-rescue LoadError
-end
-
-begin
-  require 'sinatra'
-  require 'skylight/probes/sinatra'
-rescue LoadError
-end
-
-begin
-  require 'sequel'
-  require 'skylight/probes/sequel'
+  require 'action_dispatch'
+  require 'action_view'
+  require 'skylight/probes/action_view'
 rescue LoadError
 end
 
@@ -56,14 +53,6 @@ require 'skylight/probes/net_http'
 
 # End Probed Libraries
 
-
-# Begin Normalize Libraries
-
-begin
-  require 'moped'
-  require 'mongoid'
-rescue LoadError
-end
 
 # Similar to above, but this is for waiting for the embedded HTTP server to
 # receive requests. The HTTP server is used to mock out the Skylight hosted
@@ -97,7 +86,7 @@ Dir[File.expand_path('../support/*.rb', __FILE__)].each do |f|
   require "support/#{File.basename(f, ".rb")}"
 end
 
-all_probes = %w(Excon Net::HTTP Redis)
+all_probes = %w(Excon Net::HTTP Redis Tilt::Template Sinatra::Base Sequel ActionView::TemplateRenderer)
 installed_probes = Skylight::Probes.installed.keys
 skipped_probes = all_probes - installed_probes
 
@@ -135,7 +124,6 @@ RSpec.configure do |config|
     config.filter_run_excluding args
   end
 
-  config.treat_symbols_as_metadata_keys_with_true_values = true
   config.include SpecHelper
 
   original_wd   = Dir.pwd
@@ -160,8 +148,19 @@ RSpec.configure do |config|
     end
   end
 
+  config.around :each, instrumenter: true do |example|
+    begin
+      mock_clock! # This happens before the before(:each) below
+      clock.freeze
+      Skylight::Instrumenter.mock!
+      Skylight.trace("Test") { example.run }
+    ensure
+      Skylight::Instrumenter.stop!
+    end
+  end
+
   config.before :each do
-    Skylight::Util::Clock.default = SpecHelper::TestClock.new
+    mock_clock!
   end
 
   config.before :each, http: true do
@@ -170,6 +169,7 @@ RSpec.configure do |config|
 
   config.after :each do
     cleanup_all_spawned_workers
+    reset_clock!
 
     # Reset the starting paths
     Skylight::Probes.instance_variable_set(:@require_hooks, {})
@@ -180,4 +180,21 @@ RSpec.configure do |config|
     end
   end
 
+  config.after :all do
+    # In Rails 3.2 when ActionController::Base is loaded, Test::Unit is initialized.
+    # This avoids it trying to auto-run tests in addition to RSpec.
+    if defined?(Test::Unit::AutoRunner)
+      Test::Unit::AutoRunner.need_auto_run = false
+    end
+  end
+
+end
+
+if defined?(Axiom::Types::Infinity)
+  # Old versions of axiom-types don't play well with newer RSpec
+  class Axiom::Types::Infinity
+    def self.<(other)
+      false
+    end
+  end
 end

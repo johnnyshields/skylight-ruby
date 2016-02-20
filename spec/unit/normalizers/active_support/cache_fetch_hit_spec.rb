@@ -4,12 +4,11 @@ module Skylight
   describe "Normalizers", "cache_fetch_hit.active_support", :agent do
 
     it "normalizes the notification name with defaults" do
-      name, title, desc, payload = normalize(key: "foo")
+      name, title, desc = normalize(key: "foo")
 
-      name.should == "app.cache.fetch_hit"
-      title.should == "cache fetch hit"
-      desc.should == nil
-      payload.should == { key: "foo" }
+      expect(name).to eq("app.cache.fetch_hit")
+      expect(title).to eq("cache fetch hit")
+      expect(desc).to eq(nil)
     end
   end
 end

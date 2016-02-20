@@ -1,55 +1,18 @@
 require 'spec_helper'
 
-describe 'Excon integration', :excon_probe, :http, :agent do
+describe 'Excon integration', :excon_probe, :http, :agent, :instrumenter do
 
-  class TestSpan
-    def self.spans
-      @@spans ||= []
-    end
-
-    attr_reader :opts
-
-    def initialize(opts)
-      TestSpan.spans << self
-      @start = Time.now
-      @opts = opts
-    end
-
-    def done
-      @end = Time.now
-    end
-
-    def duration
-      return nil unless @start && @end
-      # Sometimes we get very slight millisecond offsets
-      # Consider it good enough if it's off by less than .05 ms
-      @end - @start
-    end
-  end
-
-  let :now do
-    Time.now
-  end
-
-  before :each do
-    Timecop.freeze(now)
-
-    # This is a bit risky to stub :/
-    Skylight.stub(:instrument) {|opts| TestSpan.new(opts) }
-  end
-
-  after :each do
-    Timecop.return
-    TestSpan.spans.clear
+  def travel(amount)
+    clock.tick += 100_000 * amount # tick value should be nanoseconds (1 billionth of a second)
   end
 
   def stub_request(opts={}, &block)
     path = "/#{opts[:path]}"
     method = opts[:method] || :get
-    delay  = opts[:delay] || 1
+    delay  = opts[:delay] || 1 # agent talks units of 100 microseconds (10,000ths of a second)
 
     server.mock path, method do
-      Timecop.freeze(now + delay)
+      travel(delay)
       block.call() if block
       [200, '']
     end
@@ -57,25 +20,14 @@ describe 'Excon integration', :excon_probe, :http, :agent do
 
   it "logs successful requests" do
     stub_request
-
     Excon.get(server_uri)
 
-    TestSpan.spans.length.should == 1
-
-    span = TestSpan.spans[0]
-    span.duration.should == 1
-    span.opts.should == {
-      category:    "api.http.get",
-      title:       "GET localhost",
-      annotations: {
-        method: "GET",
-        scheme: "http",
-        host: "localhost",
-        port: 9292,
-        path: "/",
-        query: nil
-      }
+    expected = {
+      cat: "api.http.get",
+      title: "GET localhost",
+      duration: 1
     }
+    expect(current_trace.mock_spans[1]).to include(expected)
   end
 
   context "errors" do
@@ -84,35 +36,28 @@ describe 'Excon integration', :excon_probe, :http, :agent do
       Excon.defaults[:mock] = true
     end
 
+    after :each do
+      Excon.defaults[:mock] = false
+      Excon.stubs.clear
+    end
+
     it "logs errored requests" do
       Excon.stub({}, lambda{|request_params|
-        Timecop.freeze(now + 2)
+        travel(2)
         raise "bad response"
         { :body => 'body', :status => 200 }
       })
 
       Excon.get("http://example.com") rescue nil
 
-      span = TestSpan.spans[0]
-      span.duration.should == 2
-      span.opts.should == {
-        category:    "api.http.get",
-        title:       "GET example.com",
-        annotations: {
-          method: "GET",
-          scheme: "http",
-          host: "example.com",
-          port: nil,
-          path: "/",
-          query: nil
-        }
+      expected = {
+        cat: "api.http.get",
+        title: "GET example.com",
+        duration: 2
       }
+      expect(current_trace.mock_spans[1]).to include(expected)
     end
 
-    after :each do
-      Excon.defaults[:mock] = false
-      Excon.stubs.clear
-    end
   end
 
   context "descriptions" do
@@ -122,18 +67,8 @@ describe 'Excon integration', :excon_probe, :http, :agent do
         stub_request(method: verb)
 
         Excon.send(verb, server_uri)
-        TestSpan.spans.last.opts.should == {
-          category:    "api.http.#{verb}",
-          title:       "#{verb.upcase} localhost",
-          annotations: {
-            method: verb.upcase,
-            scheme: "http",
-            host:   "localhost",
-            port:   9292,
-            path:   "/",
-            query:  nil
-          }
-        }
+
+        expect(current_trace.mock_spans[1]).to include(cat: "api.http.#{verb}", title: "#{verb.upcase} localhost")
       end
     end
 
@@ -146,36 +81,16 @@ describe 'Excon integration', :excon_probe, :http, :agent do
       stub_request
 
       Excon.get("#{server_uri}/path/to/file")
-      TestSpan.spans.last.opts.should == {
-        category:    "api.http.get",
-        title:       "GET localhost",
-        annotations: {
-          method: "GET",
-          scheme: "http",
-          host: "localhost",
-          port: 9292,
-          path: "/path/to/file",
-          query: nil
-        }
-      }
+
+      expect(current_trace.mock_spans[1]).to include(cat: "api.http.get", title: "GET localhost")
     end
 
     it "describes queries" do
       stub_request
 
       Excon.get("#{server_uri}/path/to/file?foo=bar&baz=qux")
-      TestSpan.spans.last.opts.should == {
-        category:    "api.http.get",
-        title:       "GET localhost",
-        annotations: {
-          method: "GET",
-          scheme: "http",
-          host: "localhost",
-          port: 9292,
-          path: "/path/to/file",
-          query: "foo=bar&baz=qux"
-        }
-      }
+
+      expect(current_trace.mock_spans[1]).to include(cat: "api.http.get", title: "GET localhost")
     end
   end
 

@@ -14,12 +14,25 @@ module Skylight
 
     def register!
       unregister! if @subscriber
-      @subscriber = ActiveSupport::Notifications.subscribe nil, self
+      pattern = ArrayPattern.new(@normalizers.keys)
+      @subscriber = ActiveSupport::Notifications.subscribe pattern, self
     end
 
     def unregister!
       ActiveSupport::Notifications.unsubscribe @subscriber
       @subscriber = nil
+    end
+
+    class ArrayPattern
+
+      def initialize(keys)
+        @keys = Set.new keys
+      end
+
+      def ===(item)
+        @keys.include?(item)
+      end
+
     end
 
     #
@@ -40,10 +53,20 @@ module Skylight
       return if @instrumenter.disabled?
       return unless trace = @instrumenter.current_trace
 
-      cat, title, desc, annot = normalize(trace, name, payload)
+      result = normalize(trace, name, payload)
 
-      unless cat == :skip
-        span = trace.instrument(cat, title, desc, annot)
+      unless result == :skip
+        case result.size
+        when 4
+          error "old style normalizer; name=#{name.inspect}; normalizer=#{@normalizers.normalizer_for(name).class}"
+          cat, title, desc, _ = result
+        when 3
+          cat, title, desc = result
+        else
+          raise "Invalid normalizer result: #{result.inspect}"
+        end
+
+        span = trace.instrument(cat, title, desc)
       end
 
       trace.notifications << Notification.new(name, span)
@@ -53,7 +76,6 @@ module Skylight
       debug "in:  name=%s", name.inspect
       debug "in:  payload=%s", payload.inspect
       debug "out: cat=%s, title=%s, desc=%s", cat.inspect, name.inspect, desc.inspect
-      debug "out: annot=%s", annot.inspect
       t { e.backtrace.join("\n") }
       nil
     end

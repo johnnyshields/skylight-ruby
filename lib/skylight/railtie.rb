@@ -13,9 +13,9 @@ module Skylight
     config.skylight.config_path = "config/skylight.yml"
 
     # The probes to load
-    #   net_http is on by default
-    #   Also available: excon, redis
-    config.skylight.probes = ['net_http']
+    #   net_http, action_view, and grape are on by default
+    #   Also available: excon, redis, sinatra, tilt, sequel
+    config.skylight.probes = ['net_http', 'action_view', 'grape']
 
     initializer 'skylight.configure' do |app|
       # Load probes even when agent is inactive to catch probe related bugs sooner
@@ -25,16 +25,24 @@ module Skylight
 
       if activate?
         if config
-          if Instrumenter.start!(config)
-            app.middleware.insert 0, Middleware, config: config
-            Rails.logger.info "[SKYLIGHT] [#{Skylight::VERSION}] Skylight agent enabled"
-          else
-            Rails.logger.info "[SKYLIGHT] [#{Skylight::VERSION}] Unable to start"
+          begin
+            config.validate!
+
+            if Instrumenter.start!(config)
+              app.middleware.insert 0, Middleware, config: config
+              Rails.logger.info "[SKYLIGHT] [#{Skylight::VERSION}] Skylight agent enabled"
+            else
+              Rails.logger.info "[SKYLIGHT] [#{Skylight::VERSION}] Unable to start"
+            end
+          rescue ConfigError => e
+            Rails.logger.error "[SKYLIGHT] [#{Skylight::VERSION}] #{e.message}; disabling Skylight agent"
           end
         end
       elsif Rails.env.development?
-        log_warning config, "[SKYLIGHT] [#{Skylight::VERSION}] Running Skylight in development mode. No data will be reported until you deploy your app.\n" \
-                              "(To disable this message, set `alert_log_file` in your config.)"
+        unless UserConfig.instance.disable_dev_warning?
+          log_warning config, "[SKYLIGHT] [#{Skylight::VERSION}] Running Skylight in development mode. No data will be reported until you deploy your app.\n" \
+                                "(To disable this message for all local apps, run `skylight disable_dev_warning`.)"
+        end
       elsif !Rails.env.test?
         log_warning config, "[SKYLIGHT] [#{Skylight::VERSION}] You are running in the #{Rails.env} environment but haven't added it to config.skylight.environments, so no data will be sent to skylight.io."
       end
@@ -64,18 +72,13 @@ module Skylight
       end
 
       config = Config.load(file: path, environment: Rails.env.to_s)
-      config['root'] = Rails.root
+      config[:root] = Rails.root
 
       configure_logging(config, app)
 
-      config['daemon.sockdir_path'] ||= tmp
-      config['normalizers.render.view_paths'] = existent_paths(app.config.paths["app/views"]) + [Rails.root.to_s]
-      config.validate!
+      config[:'daemon.sockdir_path'] ||= tmp
+      config[:'normalizers.render.view_paths'] = existent_paths(app.config.paths["app/views"]) + [Rails.root.to_s]
       config
-
-    rescue ConfigError => e
-      Rails.logger.error "[SKYLIGHT] [#{Skylight::VERSION}] #{e.message}; disabling Skylight agent"
-      nil
     end
 
     def configure_logging(config, app)
